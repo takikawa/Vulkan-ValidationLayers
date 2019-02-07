@@ -80,18 +80,18 @@ typedef struct _LoggingLabelData {
 } LoggingLabelData;
 
 typedef struct _debug_report_data {
-    VkLayerDbgFunctionNode *debug_callback_list;
-    VkLayerDbgFunctionNode *default_debug_callback_list;
-    VkDebugUtilsMessageSeverityFlagsEXT active_severities;
-    VkDebugUtilsMessageTypeFlagsEXT active_types;
-    bool g_DEBUG_REPORT;
-    bool g_DEBUG_UTILS;
-    std::unordered_map<uint64_t, std::string> *debugObjectNameMap;
-    std::unordered_map<uint64_t, std::string> *debugUtilsObjectNameMap;
-    std::unordered_map<VkQueue, std::vector<LoggingLabelData>> *debugUtilsQueueLabels;
-    bool queueLabelHasInsert;
-    std::unordered_map<VkCommandBuffer, std::vector<LoggingLabelData>> *debugUtilsCmdBufLabels;
-    bool cmdBufLabelHasInsert;
+    VkLayerDbgFunctionNode *debug_callback_list{nullptr};
+    VkLayerDbgFunctionNode *default_debug_callback_list{nullptr};
+    VkDebugUtilsMessageSeverityFlagsEXT active_severities{0};
+    VkDebugUtilsMessageTypeFlagsEXT active_types{0};
+    bool g_DEBUG_REPORT{false};
+    bool g_DEBUG_UTILS{false};
+    bool queueLabelHasInsert{false};
+    bool cmdBufLabelHasInsert{false};
+    std::unordered_map<uint64_t, std::string> *debugObjectNameMap{nullptr};
+    std::unordered_map<uint64_t, std::string> *debugUtilsObjectNameMap{nullptr};
+    std::unordered_map<VkQueue, std::vector<LoggingLabelData>> *debugUtilsQueueLabels{nullptr};
+    std::unordered_map<VkCommandBuffer, std::vector<LoggingLabelData>> *debugUtilsCmdBufLabels{nullptr};
     mutable std::mutex debug_report_mutex;
 
     void DebugReportSetUtilsObjectName(const VkDebugUtilsObjectNameInfoEXT *pNameInfo) {
@@ -549,10 +549,8 @@ static inline debug_report_data *debug_utils_create_instance(
     VkLayerInstanceDispatchTable *table, VkInstance inst, uint32_t extension_count,
     const char *const *enabled_extensions)  // layer or extension name to be enabled
 {
-    debug_report_data *debug_data = (debug_report_data *)malloc(sizeof(debug_report_data));
-    if (!debug_data) return NULL;
+    debug_report_data *debug_data = new debug_report_data;
 
-    memset(debug_data, 0, sizeof(debug_report_data));
     for (uint32_t i = 0; i < extension_count; i++) {
         // TODO: Check other property fields
         if (strcmp(enabled_extensions[i], VK_EXT_DEBUG_REPORT_EXTENSION_NAME) == 0) {
@@ -561,6 +559,7 @@ static inline debug_report_data *debug_utils_create_instance(
             debug_data->g_DEBUG_UTILS = true;
         }
     }
+
     debug_data->debugObjectNameMap = new std::unordered_map<uint64_t, std::string>;
     debug_data->debugUtilsObjectNameMap = new std::unordered_map<uint64_t, std::string>;
     debug_data->debugUtilsQueueLabels = new std::unordered_map<VkQueue, std::vector<LoggingLabelData>>;
@@ -579,7 +578,8 @@ static inline void layer_debug_utils_destroy_instance(debug_report_data *debug_d
         delete debug_data->debugUtilsObjectNameMap;
         delete debug_data->debugUtilsQueueLabels;
         delete debug_data->debugUtilsCmdBufLabels;
-        free(debug_data);
+        lock.unlock();
+        delete (debug_data);
     }
 }
 
