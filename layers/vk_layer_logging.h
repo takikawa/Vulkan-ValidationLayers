@@ -92,8 +92,10 @@ typedef struct _debug_report_data {
     bool queueLabelHasInsert;
     std::unordered_map<VkCommandBuffer, std::vector<LoggingLabelData>> *debugUtilsCmdBufLabels;
     bool cmdBufLabelHasInsert;
+    mutable std::mutex debug_report_mutex;
 
     void DebugReportSetUtilsObjectName(const VkDebugUtilsObjectNameInfoEXT *pNameInfo) {
+        std::unique_lock<std::mutex> lock(debug_report_mutex);
         if (pNameInfo->pObjectName) {
             debugUtilsObjectNameMap->insert(
                 std::make_pair<uint64_t, std::string>((uint64_t &&) pNameInfo->objectHandle, pNameInfo->pObjectName));
@@ -103,6 +105,7 @@ typedef struct _debug_report_data {
     }
 
     void DebugReportSetMarkerObjectName(const VkDebugMarkerObjectNameInfoEXT *pNameInfo) {
+        std::unique_lock<std::mutex> lock(debug_report_mutex);
         if (pNameInfo->pObjectName) {
             debugObjectNameMap->insert(
                 std::make_pair<uint64_t, std::string>((uint64_t &&) pNameInfo->object, pNameInfo->pObjectName));
@@ -113,6 +116,7 @@ typedef struct _debug_report_data {
 
     std::string DebugReportGetUtilsObjectName(const uint64_t object) {
         std::string label = "";
+        std::unique_lock<std::mutex> lock(debug_report_mutex);
         auto utils_name_iter = debugUtilsObjectNameMap->find(object);
         if (utils_name_iter != debugUtilsObjectNameMap->end()) {
             label = utils_name_iter->second;
@@ -122,6 +126,7 @@ typedef struct _debug_report_data {
 
     std::string DebugReportGetMarkerObjectName(const uint64_t object) {
         std::string label = "";
+        std::unique_lock<std::mutex> lock(debug_report_mutex);
         auto marker_name_iter = debugObjectNameMap->find(object);
         if (marker_name_iter != debugObjectNameMap->end()) {
             label = marker_name_iter->second;
@@ -567,6 +572,7 @@ static inline debug_report_data *debug_utils_create_instance(
 
 static inline void layer_debug_utils_destroy_instance(debug_report_data *debug_data) {
     if (debug_data) {
+        std::unique_lock<std::mutex> lock(debug_data->debug_report_mutex);
         RemoveAllMessageCallbacks(debug_data, &debug_data->default_debug_callback_list);
         RemoveAllMessageCallbacks(debug_data, &debug_data->debug_callback_list);
         delete debug_data->debugObjectNameMap;
@@ -589,6 +595,7 @@ static inline void layer_debug_utils_destroy_device(VkDevice device) {
 
 static inline void layer_destroy_messenger_callback(debug_report_data *debug_data, VkDebugUtilsMessengerEXT messenger,
                                                     const VkAllocationCallbacks *allocator) {
+    std::unique_lock<std::mutex> lock(debug_data->debug_report_mutex);
     RemoveDebugUtilsMessenger(debug_data, &debug_data->debug_callback_list, messenger);
     RemoveDebugUtilsMessenger(debug_data, &debug_data->default_debug_callback_list, messenger);
 }
@@ -597,6 +604,7 @@ static inline VkResult layer_create_messenger_callback(debug_report_data *debug_
                                                        const VkDebugUtilsMessengerCreateInfoEXT *create_info,
                                                        const VkAllocationCallbacks *allocator,
                                                        VkDebugUtilsMessengerEXT *messenger) {
+    std::unique_lock<std::mutex> lock(debug_data->debug_report_mutex);
     VkLayerDbgFunctionNode *pNewDbgFuncNode = (VkLayerDbgFunctionNode *)malloc(sizeof(VkLayerDbgFunctionNode));
     if (!pNewDbgFuncNode) return VK_ERROR_OUT_OF_HOST_MEMORY;
     memset(pNewDbgFuncNode, 0, sizeof(VkLayerDbgFunctionNode));
@@ -638,6 +646,7 @@ static inline VkResult layer_create_messenger_callback(debug_report_data *debug_
 
 static inline void layer_destroy_report_callback(debug_report_data *debug_data, VkDebugReportCallbackEXT callback,
                                                  const VkAllocationCallbacks *allocator) {
+    std::unique_lock<std::mutex> lock(debug_data->debug_report_mutex);
     RemoveDebugUtilsMessageCallback(debug_data, &debug_data->debug_callback_list, callback);
     RemoveDebugUtilsMessageCallback(debug_data, &debug_data->default_debug_callback_list, callback);
 }
@@ -645,6 +654,7 @@ static inline void layer_destroy_report_callback(debug_report_data *debug_data, 
 static inline VkResult layer_create_report_callback(debug_report_data *debug_data, bool default_callback,
                                                     const VkDebugReportCallbackCreateInfoEXT *create_info,
                                                     const VkAllocationCallbacks *allocator, VkDebugReportCallbackEXT *callback) {
+    std::unique_lock<std::mutex> lock(debug_data->debug_report_mutex);
     VkLayerDbgFunctionNode *pNewDbgFuncNode = (VkLayerDbgFunctionNode *)malloc(sizeof(VkLayerDbgFunctionNode));
     if (!pNewDbgFuncNode) {
         return VK_ERROR_OUT_OF_HOST_MEMORY;
@@ -929,6 +939,7 @@ static inline bool log_msg(const debug_report_data *debug_data, VkFlags msg_flag
 #endif
 static inline bool log_msg(const debug_report_data *debug_data, VkFlags msg_flags, VkDebugReportObjectTypeEXT object_type,
                            uint64_t src_object, std::string vuid_text, const char *format, ...) {
+    std::unique_lock<std::mutex> lock(debug_data->debug_report_mutex);
     VkFlags local_severity = 0;
     VkFlags local_type = 0;
     DebugReportFlagsToAnnotFlags(msg_flags, true, &local_severity, &local_type);
@@ -1107,6 +1118,7 @@ static inline void InsertLabelIntoLog(const VkDebugUtilsLabelEXT *utils_label, s
 
 static inline void BeginQueueDebugUtilsLabel(debug_report_data *report_data, VkQueue queue,
                                              const VkDebugUtilsLabelEXT *label_info) {
+    std::unique_lock<std::mutex> lock(report_data->debug_report_mutex);
     if (nullptr != label_info && nullptr != label_info->pLabelName) {
         auto label_iter = report_data->debugUtilsQueueLabels->find(queue);
         if (label_iter == report_data->debugUtilsQueueLabels->end()) {
@@ -1128,6 +1140,7 @@ static inline void BeginQueueDebugUtilsLabel(debug_report_data *report_data, VkQ
 }
 
 static inline void EndQueueDebugUtilsLabel(debug_report_data *report_data, VkQueue queue) {
+    std::unique_lock<std::mutex> lock(report_data->debug_report_mutex);
     auto label_iter = report_data->debugUtilsQueueLabels->find(queue);
     if (label_iter != report_data->debugUtilsQueueLabels->end()) {
         // If the last thing was a label insert, we need to pop it off of the label vector before any
@@ -1145,6 +1158,7 @@ static inline void EndQueueDebugUtilsLabel(debug_report_data *report_data, VkQue
 
 static inline void InsertQueueDebugUtilsLabel(debug_report_data *report_data, VkQueue queue,
                                               const VkDebugUtilsLabelEXT *label_info) {
+    std::unique_lock<std::mutex> lock(report_data->debug_report_mutex);
     if (nullptr != label_info && nullptr != label_info->pLabelName) {
         auto label_iter = report_data->debugUtilsQueueLabels->find(queue);
         if (label_iter == report_data->debugUtilsQueueLabels->end()) {
@@ -1169,6 +1183,7 @@ static inline void InsertQueueDebugUtilsLabel(debug_report_data *report_data, Vk
 
 static inline void BeginCmdDebugUtilsLabel(debug_report_data *report_data, VkCommandBuffer command_buffer,
                                            const VkDebugUtilsLabelEXT *label_info) {
+    std::unique_lock<std::mutex> lock(report_data->debug_report_mutex);
     if (nullptr != label_info && nullptr != label_info->pLabelName) {
         auto label_iter = report_data->debugUtilsCmdBufLabels->find(command_buffer);
         if (label_iter == report_data->debugUtilsCmdBufLabels->end()) {
@@ -1190,6 +1205,7 @@ static inline void BeginCmdDebugUtilsLabel(debug_report_data *report_data, VkCom
 }
 
 static inline void EndCmdDebugUtilsLabel(debug_report_data *report_data, VkCommandBuffer command_buffer) {
+    std::unique_lock<std::mutex> lock(report_data->debug_report_mutex);
     auto label_iter = report_data->debugUtilsCmdBufLabels->find(command_buffer);
     if (label_iter != report_data->debugUtilsCmdBufLabels->end()) {
         // If the last thing was a label insert, we need to pop it off of the label vector before any
@@ -1210,6 +1226,7 @@ static inline void EndCmdDebugUtilsLabel(debug_report_data *report_data, VkComma
 
 static inline void InsertCmdDebugUtilsLabel(debug_report_data *report_data, VkCommandBuffer command_buffer,
                                             const VkDebugUtilsLabelEXT *label_info) {
+    std::unique_lock<std::mutex> lock(report_data->debug_report_mutex);
     if (nullptr != label_info && nullptr != label_info->pLabelName) {
         auto label_iter = report_data->debugUtilsCmdBufLabels->find(command_buffer);
         if (label_iter == report_data->debugUtilsCmdBufLabels->end()) {
